@@ -290,7 +290,7 @@ main (int argc, char **argv)
         {
             assert_arg ("--cpu-nice");
             do_cpu_nice = atoll_b (arg);
-            if (do_cpu_nice <= 0)
+            if (do_cpu_nice < -20 || do_cpu_nice > 19)
             {
                 err (stderr, "invalid number of nice hogs: %lli\n", do_cpu_nice);
                 exit (1);
@@ -323,10 +323,10 @@ main (int argc, char **argv)
     }
 
     /* Print startup message if we have work to do, bail otherwise.  */
-    if (do_cpu + do_io + do_vm + do_hdd + do_cpu_nice + do_cpu_sys)
+    if (do_cpu + do_io + do_vm + do_hdd + do_cpu_sys)
     {
-        out (stdout, "dispatching hogs: %lli cpu, %lli io, %lli vm, %lli hdd, %lli cpu_nice, %lli cpu_sys \n",
-             do_cpu, do_io, do_vm, do_hdd, do_cpu_nice, do_cpu_sys);
+        out (stdout, "dispatching hogs: %lli cpu, %lli io, %lli vm, %lli hdd, %lli cpu_sys \n",
+             do_cpu, do_io, do_vm, do_hdd, do_cpu_sys);
     }
     else
         usage (0);
@@ -345,7 +345,7 @@ main (int argc, char **argv)
     }
 
     /* Round robin dispatch our worker processes.  */
-    while ((forks = (do_cpu + do_io + do_vm + do_hdd + do_cpu_nice + do_cpu_sys)))
+    while ((forks = (do_cpu + do_io + do_vm + do_hdd + do_cpu_sys)))
     {
         long long backoff, timeout = 0;
 
@@ -385,6 +385,14 @@ main (int argc, char **argv)
             {
             case 0:            /* child */
                 worker_init();
+                if (do_cpu_nice) {
+                    int ret = nice(do_cpu_nice);
+                    if (ret == -1)
+                    {
+                    err (stderr, "nice failed: %s\n", strerror (errno));
+                    return 1;
+                    }
+                }
                 alarm (timeout);
                 usleep (backoff);
                 if (do_dryrun)
@@ -463,28 +471,6 @@ main (int argc, char **argv)
                 ++children;
             }
             --do_hdd;
-        }
-
-        if (do_cpu_nice)
-        {
-            switch (pid = fork ())
-            {
-            case 0:            /* child */
-                worker_init();
-                alarm (timeout);
-                usleep (backoff);
-                if (do_dryrun)
-                    exit (0);
-                exit (hogcpu_nice ());
-            case -1:           /* error */
-                err (stderr, "fork failed: %s\n", strerror (errno));
-                break;
-            default:           /* parent */
-                dbg (stdout, "--> hogcpu_nice worker %lli [%i] forked\n",
-                     do_cpu_nice, pid);
-                ++children;
-            }
-            --do_cpu_nice;
         }
 
         if (do_cpu_sys)
@@ -969,7 +955,7 @@ usage (int status)
         "     --vm-keep      redirty memory instead of freeing and reallocating\n"
         " -d, --hdd N        spawn N workers spinning on write()/unlink()\n"
         "     --hdd-bytes B  write B bytes per hdd worker (default is 1GB)\n\n"
-        "     --cpu-nice N   spawn N workers spinning on nice() and sqrt()\n"
+        "     --cpu-nice N   set nice(N)\n"
         "     --cpu-sys  N   spawn N workers spinning on raise()\n"
         "     --vm-beginning B   malloc B bytes at beginning\n"
         "Example: %s --cpu 8 --io 4 --vm 2 --vm-bytes 128M --timeout 10s\n\n"
