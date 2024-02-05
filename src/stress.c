@@ -388,8 +388,8 @@ main (int argc, char **argv)
                     int ret = nice (do_cpu_nice);
                     if (ret == -1)
                     {
-                    err (stderr, "nice failed: %s\n", strerror (errno));
-                    return 1;
+                        err (stderr, "nice failed: %s\n", strerror (errno));
+                        return 1;
                     }
                 }
                 alarm (timeout);
