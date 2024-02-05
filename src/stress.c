@@ -137,6 +137,7 @@ main (int argc, char **argv)
     long long do_hdd_bytes = 1024 * 1024 * 1024;
     long long do_cpu_nice = 0;
     long long do_cpu_sys = 0;
+    long long do_vm_beginning = 0;
 
     signal (SIGUSR1, signal_handler);
     signal (SIGALRM, signal_handler);
@@ -305,6 +306,15 @@ main (int argc, char **argv)
                 exit (1);
             }
         }
+        else if (strcmp (arg, "--vm-beginning") == 0) {
+            assert_arg ("--vm-beginning");
+            do_vm_beginning = atoll_b (arg);
+            if (do_vm_beginning <= 0)
+            {
+                err (stderr, "invalid number of vm beginning: %lli\n", do_vm_beginning);
+                exit (1);
+            }
+        }
         else
         {
             err (stderr, "unrecognized option: %s\n", arg);
@@ -320,6 +330,17 @@ main (int argc, char **argv)
     }
     else
         usage (0);
+
+
+    char *ptr_at_beginning = 0;
+    if (do_vm_beginning) {
+        dbg (stdout, "allocating %lli bytes at beginning ...\n", do_vm_beginning);
+        if (!(ptr_at_beginning = (char *) malloc (do_vm_beginning * sizeof (char))))
+        {
+            err (stderr, "hogvm malloc failed: %s\n", strerror (errno));
+            return 1;
+        }
+    }
 
     /* Round robin dispatch our worker processes.  */
     while ((forks = (do_cpu + do_io + do_vm + do_hdd + do_cpu_nice + do_cpu_sys)))
@@ -597,6 +618,10 @@ main (int argc, char **argv)
     else
     {
         out (stdout, "successful run completed in %lis.total count is %llu\n", runtime, total_count);
+    }
+
+    if (ptr_at_beginning) {
+        free(ptr_at_beginning);
     }
 
     exit (retval);
