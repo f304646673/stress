@@ -337,9 +337,11 @@ main (int argc, char **argv)
         dbg (stdout, "allocating %lli bytes at beginning ...\n", do_vm_beginning);
         if (!(ptr_at_beginning = (char *) malloc (do_vm_beginning * sizeof (char))))
         {
-            err (stderr, "hogvm malloc failed: %s\n", strerror (errno));
+            err (stderr, "malloc failed: %s\n", strerror (errno));
             return 1;
         }
+        for (i = 0; i < do_vm_beginning; i += 4096)
+            ptr_at_beginning[i] = 'Z';           /* Ensure that COW happens.  */
     }
 
     /* Round robin dispatch our worker processes.  */
@@ -740,7 +742,7 @@ hogvm (long long bytes, long long stride, long long hang, int keep)
 
         if (do_malloc)
         {
-            // free (ptr);
+            free (ptr);
             dbg (stdout, "freed %lli bytes\n", bytes);
         }
     }
