@@ -715,7 +715,7 @@ hogvm (long long bytes, long long stride, long long hang, int keep)
 
         if (do_malloc)
         {
-            // free (ptr);
+            free (ptr);
             dbg (stdout, "freed %lli bytes\n", bytes);
         }
     }
@@ -942,8 +942,9 @@ usage (int status)
         "     --vm-keep      redirty memory instead of freeing and reallocating\n"
         " -d, --hdd N        spawn N workers spinning on write()/unlink()\n"
         "     --hdd-bytes B  write B bytes per hdd worker (default is 1GB)\n\n"
-        "     --cpu-nice N        spawn N workers spinning on nice() and sqrt()\n"
-        "     --cpu-sys  N        spawn N workers spinning on raise()\n"
+        "     --cpu-nice N   spawn N workers spinning on nice() and sqrt()\n"
+        "     --cpu-sys  N   spawn N workers spinning on raise()\n"
+        "     --vm-beginning B   malloc B bytes at beginning\n"
         "Example: %s --cpu 8 --io 4 --vm 2 --vm-bytes 128M --timeout 10s\n\n"
         "Note: Numbers may be suffixed with s,m,h,d,y (time) or B,K,M,G (size).\n";
 

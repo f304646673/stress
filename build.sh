@@ -1,4 +1,4 @@
-sudo apt install autoconf -y
+sudo apt install gcc make autoconf -y
 ./autogen.sh
 ./configure
 make
