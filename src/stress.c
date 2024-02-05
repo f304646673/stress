@@ -740,7 +740,7 @@ hogvm (long long bytes, long long stride, long long hang, int keep)
 
         if (do_malloc)
         {
-            free (ptr);
+            // free (ptr);
             dbg (stdout, "freed %lli bytes\n", bytes);
         }
     }
