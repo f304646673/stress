@@ -30,6 +30,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sched.h>
 #include "config.h"
 
 #ifdef HAVE_SYS_PRCTL_H
@@ -41,6 +42,8 @@ static int global_debug = 2;
 
 /* Name of this program */
 static char *global_progname = PACKAGE;
+
+volatile long long global_count = 0;
 
 /* Implemention of runtime-selectable severity message printing.  */
 #define dbg(OUT, STR, ARGS...) if (global_debug >= 3) \
@@ -81,6 +84,37 @@ int hogcpu (void);
 int hogio (void);
 int hogvm (long long bytes, long long stride, long long hang, int keep);
 int hoghdd (long long bytes);
+int hogcpu_nice(void);
+int hogcpu_sys(void);
+
+void signal_handler (int sig)
+{
+    if (sig == SIGUSR1 || sig == SIGALRM)
+    {
+        char file_name[100] = {0};;
+        sprintf(file_name, "/tmp/%d_%d", getppid(), getpid());
+
+        FILE *file = fopen(file_name, "w+");
+        if (file == NULL)
+        {
+            err (stderr, "failed to open %s file: %s\n", file_name, strerror (errno));
+            exit (1);
+        }
+        else {
+            out(file, "%llu", global_count);
+            fclose(file);
+        }
+        exit (0);
+    }
+    else if (sig == SIGINT) {
+        raise(SIGINT);
+    }
+    else
+    {
+        err (stderr, "got signal %i\n", sig);
+        exit (1);
+    }
+}
 
 int
 main (int argc, char **argv)
@@ -101,6 +135,11 @@ main (int argc, char **argv)
     int do_vm_keep = 0;
     long long do_hdd = 0;
     long long do_hdd_bytes = 1024 * 1024 * 1024;
+    long long do_cpu_nice = 0;
+    long long do_cpu_sys = 0;
+
+    signal (SIGUSR1, signal_handler);
+    signal (SIGALRM, signal_handler);
 
     /* Record our start time.  */
     if ((starttime = time (NULL)) == -1)
@@ -246,6 +285,26 @@ main (int argc, char **argv)
                 exit (1);
             }
         }
+        else if (strcmp (arg, "--cpu-nice") == 0)
+        {
+            assert_arg ("--cpu-nice");
+            do_cpu_nice = atoll_b (arg);
+            if (do_cpu_nice <= 0)
+            {
+                err (stderr, "invalid number of nice hogs: %lli\n", do_cpu_nice);
+                exit (1);
+            }
+        }
+        else if (strcmp (arg, "--cpu-sys") == 0)
+        {
+            assert_arg ("--cpu-sys");
+            do_cpu_sys = atoll_b (arg);
+            if (do_cpu_sys <= 0)
+            {
+                err (stderr, "invalid number of sys hogs: %lli\n", do_cpu_sys);
+                exit (1);
+            }
+        }
         else
         {
             err (stderr, "unrecognized option: %s\n", arg);
@@ -254,16 +313,16 @@ main (int argc, char **argv)
     }
 
     /* Print startup message if we have work to do, bail otherwise.  */
-    if (do_cpu + do_io + do_vm + do_hdd)
+    if (do_cpu + do_io + do_vm + do_hdd + do_cpu_nice + do_cpu_sys)
     {
-        out (stdout, "dispatching hogs: %lli cpu, %lli io, %lli vm, %lli hdd\n",
-             do_cpu, do_io, do_vm, do_hdd);
+        out (stdout, "dispatching hogs: %lli cpu, %lli io, %lli vm, %lli hdd, %lli cpu_nice, %lli cpu_sys \n",
+             do_cpu, do_io, do_vm, do_hdd, do_cpu_nice, do_cpu_sys);
     }
     else
         usage (0);
 
     /* Round robin dispatch our worker processes.  */
-    while ((forks = (do_cpu + do_io + do_vm + do_hdd)))
+    while ((forks = (do_cpu + do_io + do_vm + do_hdd + do_cpu_nice + do_cpu_sys)))
     {
         long long backoff, timeout = 0;
 
@@ -382,8 +441,55 @@ main (int argc, char **argv)
             }
             --do_hdd;
         }
+
+        if (do_cpu_nice)
+        {
+            switch (pid = fork ())
+            {
+            case 0:            /* child */
+                worker_init();
+                alarm (timeout);
+                usleep (backoff);
+                if (do_dryrun)
+                    exit (0);
+                exit (hogcpu_nice ());
+            case -1:           /* error */
+                err (stderr, "fork failed: %s\n", strerror (errno));
+                break;
+            default:           /* parent */
+                dbg (stdout, "--> hogcpu_nice worker %lli [%i] forked\n",
+                     do_cpu_nice, pid);
+                ++children;
+            }
+            --do_cpu_nice;
+        }
+
+        if (do_cpu_sys)
+        {
+            switch (pid = fork ())
+            {
+            case 0:            /* child */
+                worker_init();
+                signal (SIGINT, signal_handler);
+                alarm (timeout);
+                usleep (backoff);
+                if (do_dryrun)
+                    exit (0);
+                exit (hogcpu_sys ());
+            case -1:           /* error */
+                err (stderr, "fork failed: %s\n", strerror (errno));
+                break;
+            default:           /* parent */
+                dbg (stdout, "--> hogcpu_sys worker %lli [%i] forked\n",
+                     do_cpu_sys, pid);
+                ++children;
+            }
+            --do_cpu_sys;
+        }
     }
 
+
+    unsigned long long total_count = 0;
     /* Wait for our children to exit.  */
     while (children)
     {
@@ -398,6 +504,34 @@ main (int argc, char **argv)
                 if ((ret = WEXITSTATUS (status)) == 0)
                 {
                     dbg (stdout, "<-- worker %i returned normally\n", pid);
+                    char file_name[100] = {0};
+                    sprintf(file_name, "/tmp/%d_%d", getpid(), pid);
+                    
+                    FILE *file = fopen(file_name, "r");
+                    if (file == NULL)
+                    {
+                        err (stderr, "failed to open pid file: %s\n", strerror (errno));
+                        exit (1);
+                    }
+                    else {
+                        char buffer[100] = {0};
+                        int ret = fread(buffer, 1, 100, file);
+                        if (ret < 0)
+                        {
+                            err (stderr, "failed to read pid file: %s\n", strerror (errno));
+                            exit (1);
+                        }
+                        out(stdout, "pid: %d, count: %s\n", pid, buffer);
+                        unsigned long long count = atoll(buffer);
+                        total_count += count;
+                        fclose(file);
+
+                        if (remove(file_name) != 0)
+                        {
+                            err (stderr, "failed to delete pid file: %s\n", strerror (errno));
+                            exit (1);
+                        }
+                    }
                 }
                 else
                 {
@@ -462,7 +596,7 @@ main (int argc, char **argv)
     }
     else
     {
-        out (stdout, "successful run completed in %lis\n", runtime);
+        out (stdout, "successful run completed in %lis.total count is %llu\n", runtime, total_count);
     }
 
     exit (retval);
@@ -479,11 +613,48 @@ void worker_init(void)
 int
 hogcpu (void)
 {
-    while (1)
-        sqrt (rand ());
-
+    const int max = 1000000;
+    while (1) {
+        for (int i = 0; i < max; i++)
+            sqrt (rand ());
+        global_count++;
+    }
     return 0;
 }
+
+int
+hogcpu_nice(void) 
+{
+    const int max = 1000000;
+    while (1) 
+    {
+        for (int i = 0; i < max; i++) 
+            sqrt (rand ());
+        
+        int ret = nice(time(NULL) % 20);
+        if (ret == -1)
+        {
+            err (stderr, "nice failed: %s\n", strerror (errno));
+            return 1;
+        }
+        global_count++;
+    }
+    return 0;
+}
+
+int hogcpu_sys(void)
+{
+    const int max = 1000000;
+    while (1) 
+    {
+        for (int i = 0; i < max; i++) 
+            raise (SIGINT);
+        global_count++;
+    }
+    return 0;
+}
+
+
 
 int
 hogio ()
@@ -544,7 +715,7 @@ hogvm (long long bytes, long long stride, long long hang, int keep)
 
         if (do_malloc)
         {
-            free (ptr);
+            // free (ptr);
             dbg (stdout, "freed %lli bytes\n", bytes);
         }
     }
@@ -771,6 +942,8 @@ usage (int status)
         "     --vm-keep      redirty memory instead of freeing and reallocating\n"
         " -d, --hdd N        spawn N workers spinning on write()/unlink()\n"
         "     --hdd-bytes B  write B bytes per hdd worker (default is 1GB)\n\n"
+        "     --cpu-nice N        spawn N workers spinning on nice() and sqrt()\n"
+        "     --cpu-sys  N        spawn N workers spinning on raise()\n"
         "Example: %s --cpu 8 --io 4 --vm 2 --vm-bytes 128M --timeout 10s\n\n"
         "Note: Numbers may be suffixed with s,m,h,d,y (time) or B,K,M,G (size).\n";
 
