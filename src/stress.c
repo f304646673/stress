@@ -385,7 +385,7 @@ main (int argc, char **argv)
             case 0:            /* child */
                 worker_init();
                 if (do_cpu_nice) {
-                    int ret = nice(do_cpu_nice);
+                    int ret = nice (do_cpu_nice);
                     if (ret == -1)
                     {
                     err (stderr, "nice failed: %s\n", strerror (errno));
