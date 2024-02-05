@@ -84,7 +84,6 @@ int hogcpu (void);
 int hogio (void);
 int hogvm (long long bytes, long long stride, long long hang, int keep);
 int hoghdd (long long bytes);
-int hogcpu_nice(void);
 int hogcpu_sys(void);
 
 void signal_handler (int sig)
@@ -630,26 +629,6 @@ hogcpu (void)
     while (1) {
         for (int i = 0; i < max; i++)
             sqrt (rand ());
-        global_count++;
-    }
-    return 0;
-}
-
-int
-hogcpu_nice(void) 
-{
-    const int max = 1000000;
-    while (1) 
-    {
-        for (int i = 0; i < max; i++) 
-            sqrt (rand ());
-        
-        int ret = nice(time(NULL) % 20);
-        if (ret == -1)
-        {
-            err (stderr, "nice failed: %s\n", strerror (errno));
-            return 1;
-        }
         global_count++;
     }
     return 0;
